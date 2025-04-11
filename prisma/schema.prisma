@@ -1,0 +1,51 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+model Game {
+  id                 String   @id @default(cuid())
+  code               String   @unique
+  status             String   @default("WAITING") // WAITING, PLACING_SHIPS, ACTIVE, FINISHED
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  players            Player[]
+  shots              Shot[]
+  currentTurnPlayer  Player?  @relation("CurrentTurn", fields: [currentTurnPlayerId], references: [id])
+  currentTurnPlayerId String?
+  winner             Player?  @relation("Winner", fields: [winnerPlayerId], references: [id])
+  winnerPlayerId     String?
+}
+
+model Player {
+  id            String   @id @default(cuid())
+  isHost        Boolean  @default(false)
+  game          Game     @relation(fields: [gameId], references: [id])
+  gameId        String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  shots         Shot[]
+  wonGames      Game[]   @relation("Winner")
+  currentTurnIn Game[]   @relation("CurrentTurn")
+  // Store ship placements as JSON. Add fields for hits/status later if needed.
+  shipPlacements Json? // [{ id, name, size, x, y, isVertical }] 
+}
+
+model Shot {
+  id        String   @id @default(cuid())
+  x         Int
+  y         Int
+  isHit     Boolean
+  game      Game     @relation(fields: [gameId], references: [id])
+  gameId    String
+  player    Player   @relation(fields: [playerId], references: [id])
+  playerId  String
+  createdAt DateTime @default(now())
+} 

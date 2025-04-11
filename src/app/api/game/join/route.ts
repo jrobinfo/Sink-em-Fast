@@ -1,55 +1,62 @@
 // src/app/api/game/join/route.ts
 import { NextResponse } from 'next/server';
-import { gameStore, generatePlayerId } from '@/lib/game-store';
+import { z } from 'zod';
+import { db } from '@/lib/db';
 
-export async function POST(request: Request) {
+const joinGameSchema = z.object({
+  gameCode: z.string().length(6),
+});
+
+export async function POST(req: Request) {
   try {
-    const { gameCode } = await request.json();
+    const body = await req.json();
+    const { gameCode } = joinGameSchema.parse(body);
 
-    if (!gameCode) {
-      return NextResponse.json({ message: 'Game code is required' }, { status: 400 });
-    }
-
-    const game = gameStore.getGame(gameCode);
+    // Check if game exists
+    const game = await db.game.findUnique({
+      where: {
+        code: gameCode,
+      },
+    });
 
     if (!game) {
-      return NextResponse.json({ message: 'Game not found' }, { status: 404 });
+      return NextResponse.json(
+        { error: 'Game not found' },
+        { status: 404 }
+      );
     }
 
-    if (game.players.length >= 2) {
-      return NextResponse.json({ message: 'Game is full' }, { status: 409 }); // 409 Conflict
+    if (game.status !== 'WAITING') {
+      return NextResponse.json(
+        { error: 'Game has already started' },
+        { status: 400 }
+      );
     }
 
-    // Check if joining player is already in the game (e.g., creator refreshing)
-    // We need the player's ID from the client for this check. Let's assume it's passed.
-    // **Modify this later if needed**
-    // const { playerId: joiningPlayerId } = await request.json();
-    // if (game.players.some(p => p.id === joiningPlayerId)) {
-    //    console.log(`Player ${joiningPlayerId} rejoining game ${gameCode}`);
-    //    return NextResponse.json({ gameCode, playerId: joiningPlayerId, message: "Rejoined game" });
-    // }
+    // Create a new player for this game
+    const player = await db.player.create({
+      data: {
+        gameId: game.id,
+        isHost: false,
+      },
+    });
 
-    const newPlayerId = generatePlayerId();
-    const updatedPlayers = [...game.players, { id: newPlayerId }];
-
-    // Update game status when the second player joins
-    const updatedStatus = updatedPlayers.length === 2 ? 'placing_ships' : game.status;
-
-    gameStore.updateGame(gameCode, { players: updatedPlayers, status: updatedStatus });
-
-    console.log(`Player ${newPlayerId} joined game: ${gameCode}`, gameStore.getGame(gameCode));
-
-    // TODO: Notify the first player via WebSocket that someone joined
-
-    // Return the game code and the new player's ID
-    return NextResponse.json({ gameCode, playerId: newPlayerId });
-
+    return NextResponse.json({
+      playerId: player.id,
+      gameId: game.id,
+    });
   } catch (error) {
-    console.error("Error joining game:", error);
-    // Check if the error is due to invalid JSON body
-    if (error instanceof SyntaxError) {
-        return NextResponse.json({ message: 'Invalid request body' }, { status: 400 });
+    if (error instanceof z.ZodError) {
+      return NextResponse.json(
+        { error: 'Invalid game code format' },
+        { status: 400 }
+      );
     }
-    return NextResponse.json({ message: 'Error joining game' }, { status: 500 });
+    
+    console.error('Error joining game:', error);
+    return NextResponse.json(
+      { error: 'Failed to join game' },
+      { status: 500 }
+    );
   }
 }
